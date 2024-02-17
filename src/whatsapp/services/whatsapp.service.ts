@@ -345,8 +345,11 @@ export class WAStartupService {
           statusCode: DisconnectReason.badSession,
         });
 
-        this.stateConnection.state = 'refused';
-        this.stateConnection.statusReason = DisconnectReason.connectionClosed;
+this.stateConnection = {
+  state: 'refused',
+  statusReason: DisconnectReason.connectionClosed,
+};
+
 
         this.sendDataWebhook('connectionUpdated', {
           instance: this.instance.name,
@@ -473,6 +476,31 @@ export class WAStartupService {
       return { conversation: '' };
     }
   }
+
+private cleanStore() {
+  const store = this.configService.get<StoreConf>('STORE');
+  const database = this.configService.get<Database>('DATABASE');
+  if (store?.CLEANING_INTERVAL && !database.ENABLED) {
+    setInterval(() => {
+      try {
+        for (const [key, value] of Object.entries(store)) {
+          if (value === true) {
+            execSync(
+              `rm -rf ${join(
+                this.storePath,
+                key.toLowerCase(),
+                this.instance.wuid,
+              )}/*.json`,
+            );
+          }
+        }
+      } catch (error) {
+        // Handle errors if needed
+        console.error('Error in cleanStore:', error);
+      }
+    }, (store?.CLEANING_INTERVAL ?? 3600) * 1000);
+  }
+}
 
   private async defineAuthState() {
     const redis = this.configService.get<Redis>('REDIS');
@@ -761,65 +789,65 @@ export class WAStartupService {
           messageType,
           content: received.message[messageType] as PrismType.Prisma.JsonValue,
           messageTimestamp: received.messageTimestamp as number,
-          instanceId: this.instance.id,
-          device: getDevice(received.key.id),
-          isGroup: isJidGroup(received.key.remoteJid),
-        } as PrismType.Message;
+instanceId: this.instance.id,
+device: getDevice(received.key.id),
+isGroup: isJidGroup(received.key.remoteJid),
+} as PrismType.Message;
 
-        if (this.databaseOptions.DB_OPTIONS.NEW_MESSAGE) {
-          const { id } = await this.repository.message.create({ data: messageRaw });
-          messageRaw.id = id;
-        }
+if (this.databaseOptions.DB_OPTIONS.NEW_MESSAGE) {
+  const { id } = await this.repository.message.create({ data: messageRaw });
+  messageRaw.id = id;
+}
 
-        this.logger.log(messageRaw);
+this.logger.log(messageRaw);
 
-        await this.sendDataWebhook('messagesUpsert', messageRaw);
+await this.sendDataWebhook('messagesUpsert', messageRaw);
 
-        if (s3Service.BUCKET?.ENABLE) {
-          try {
-            const media = await this.getMediaMessage(messageRaw, true);
-            if (media) {
-              const { stream, mediaType, fileName } = media;
-              const { id, name } = this.instance;
-              const mimetype = mime.lookup(fileName).toString();
-              const fullName = join(
-                `${id}_${name}`,
-                messageRaw.keyRemoteJid,
-                mediaType,
-                fileName,
-              );
-              await s3Service.uploadFile(fullName, stream, {
-                'Content-Type': mimetype,
-                'custom-header-fromMe': String(!!received.key?.fromMe),
-                'custom-header-keyRemoteJid': received.key.remoteJid,
-                'custom-header-pushName': received?.pushName,
-                'custom-header-mediaType': mediaType,
-                'custom-header-messageId': messageRaw.keyId,
-              });
+if (s3Service.BUCKET?.ENABLE) {
+  try {
+    const media = await this.getMediaMessage(messageRaw, true);
+    if (media) {
+      const { stream, mediaType, fileName } = media;
+      const { id, name } = this.instance;
+      const mimetype = mime.lookup(fileName).toString();
+      const fullName = join(
+        `${id}_${name}`,
+        messageRaw.keyRemoteJid,
+        mediaType,
+        fileName,
+      );
+      await s3Service.uploadFile(fullName, stream, {
+        'Content-Type': mimetype,
+        'custom-header-fromMe': String(!!received.key?.fromMe),
+        'custom-header-keyRemoteJid': received.key.remoteJid,
+        'custom-header-pushName': received?.pushName,
+        'custom-header-mediaType': mediaType,
+        'custom-header-messageId': messageRaw.keyId,
+      });
 
-              await this.repository.media.create({
-                data: {
-                  messageId: messageRaw.id,
-                  type: mediaType,
-                  fileName: fullName,
-                  mimetype,
-                },
-              });
-            }
-          } catch (error) {
-            this.logger.error([
-              'Error on upload file to s3',
-              error?.message,
-              error?.stack,
-            ]);
-            this.repository.createLogs(this.instance.name, {
-              content: [error?.toString(), JSON.stringify(error?.stack)],
-              type: 'error',
-              context: WAStartupService.name,
-              description: 'Error on upload file to s3',
-            });
-          }
-        }
+      await this.repository.media.create({
+        data: {
+          messageId: messageRaw.id,
+          type: mediaType,
+          fileName: fullName,
+          mimetype,
+        },
+      });
+    }
+  } catch (error) {
+    this.logger.error([
+      'Error on upload file to s3',
+      error?.message,
+      error?.stack,
+    ]);
+    this.repository.createLogs(this.instance.name, {
+      content: [error?.toString(), JSON.stringify(error?.stack)],
+      type: 'error',
+      context: WAStartupService.name,
+      description: 'Error on upload file to s3',
+    });
+  }
+}
 
         this.typebotSession.onMessage(messageRaw, async (items) => {
           for await (const item of items) {
