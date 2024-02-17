@@ -30,7 +30,6 @@
  * │ @param {RepositoryBroker} repository                                         │
  * │ @param {EventEmitter2} eventEmitter                                          │
  * │ @param {AuthService} authService                                             │
- * │ @param {RedisCache} cache                                                    │
  * ├──────────────────────────────────────────────────────────────────────────────┤
  * │ @important                                                                   │
  * │ For any future changes to the code in this file, it is recommended to        │
@@ -42,57 +41,43 @@
 import { delay } from '@whiskeysockets/baileys';
 import EventEmitter2 from 'eventemitter2';
 import { ConfigService } from '../../config/env.config';
-import { BadRequestException, InternalServerErrorException } from '../../exceptions';
+import {
+  BadRequestException,
+  InternalServerErrorException,
+  NotFoundException,
+} from '../../exceptions';
 import { InstanceDto } from '../dto/instance.dto';
-import { RepositoryBroker } from '../repository/repository.manager';
-import { AuthService, OldToken } from '../services/auth.service';
 import { WAMonitoringService } from '../services/monitor.service';
-import { WAStartupService } from '../services/whatsapp.service';
 import { Logger } from '../../config/logger.config';
-import { RedisCache } from '../../db/redis.client';
 import { Request } from 'express';
+import { Repository } from '../../repository/repository.service';
+import { InstanceService, OldToken } from '../services/instance.service';
+import { WAStartupService } from '../services/whatsapp.service';
+import { isString } from 'class-validator';
+import { RedisCache } from '../../cache/redis';
 
 export class InstanceController {
   constructor(
     private readonly waMonitor: WAMonitoringService,
     private readonly configService: ConfigService,
-    private readonly repository: RepositoryBroker,
+    private readonly repository: Repository,
     private readonly eventEmitter: EventEmitter2,
-    private readonly authService: AuthService,
-    private readonly cache: RedisCache,
+    private readonly instanceService: InstanceService,
+    private readonly redisCache: RedisCache,
   ) {}
 
-  private readonly logger = new Logger(InstanceController.name);
+  private readonly logger = new Logger(this.configService, InstanceController.name);
 
-  public async createInstance({ instanceName }: InstanceDto, req: Request) {
+  public async createInstance(instance: InstanceDto, req: Request) {
+    const created = await this.instanceService.createInstance(instance);
     try {
-      const instance = new WAStartupService(
-        this.configService,
-        this.eventEmitter,
-        this.repository,
-        this.cache,
-      );
-      instance.instanceName = instanceName;
-      this.waMonitor.waInstances[instance.instanceName] = instance;
-      this.waMonitor.delInstanceTime(instance.instanceName);
+      req.session[instance.instanceName] = Buffer.from(
+        JSON.stringify(created.Auth),
+      ).toString('base64');
 
-      const hash = await this.authService.generateHash({
-        instanceName: instance.instanceName,
-      });
-
-      req.session[instance.instanceName] = Buffer.from(JSON.stringify(hash)).toString(
-        'base64',
-      );
-
-      return {
-        instance: {
-          instanceName: instance.instanceName,
-          status: 'created',
-        },
-        hash,
-      };
+      return created;
     } catch (error) {
-      this.logger.error(error);
+      throw new InternalServerErrorException(error?.message);
     }
   }
 
@@ -115,12 +100,38 @@ export class InstanceController {
   }
 
   public async connectToWhatsapp({ instanceName }: InstanceDto) {
+    const find = await this.repository.instance.findUnique({
+      where: { name: instanceName },
+    });
+
+    if (!find) {
+      throw new NotFoundException('Instance not found');
+    }
+
     try {
-      const instance = this.waMonitor.waInstances[instanceName];
+      if (
+        this.waMonitor.waInstances.get(instanceName)?.connectionStatus?.state === 'open'
+      ) {
+        throw 'Instance already connected';
+      }
+
+      const instance = new WAStartupService(
+        this.configService,
+        this.eventEmitter,
+        this.repository,
+        this.redisCache,
+      );
+      await instance.setInstanceName(instanceName);
+      this.waMonitor.waInstances.set(instance.instanceName, instance);
+      this.waMonitor.delInstanceTime(instance.instanceName);
+
+      this.waMonitor.waInstances.set(instanceName, instance);
+
       const state = instance?.connectionStatus?.state;
 
       switch (state) {
         case 'close':
+          await instance.loadWebhook();
           await instance.connectToWhatsapp();
           await delay(2000);
           return instance.qrCode;
@@ -131,50 +142,65 @@ export class InstanceController {
       }
     } catch (error) {
       this.logger.error(error);
+      throw new BadRequestException(error?.message);
+    }
+  }
+
+  public async updateInstance(instance: InstanceDto) {
+    try {
+      const instanceData = await this.instanceService.updateInstance(instance);
+      return instanceData;
+    } catch (error) {
+      this.logger.error(error);
+      throw new BadRequestException(error?.message);
     }
   }
 
   public async connectionState({ instanceName }: InstanceDto) {
-    return this.waMonitor.waInstances[instanceName].connectionStatus;
+    return this.waMonitor.waInstances.get(instanceName)?.connectionStatus;
   }
 
   public async fetchInstances({ instanceName }: InstanceDto) {
+    if (instanceName && !isString(instanceName)) {
+      throw new BadRequestException('instanceName must be a string');
+    }
     if (instanceName) {
-      return this.waMonitor.instanceInfo(instanceName);
+      const i = await this.instanceService.fetchInstance(instanceName);
+      if (i.length === 0) {
+        throw new BadRequestException('Instance not found');
+      }
+      return i;
     }
 
-    return this.waMonitor.instanceInfo();
+    return await this.instanceService.fetchInstance();
   }
 
   public async logout({ instanceName }: InstanceDto) {
     try {
-      await this.waMonitor.waInstances[instanceName]?.client?.logout(
-        'Log out instance: ' + instanceName,
-      );
+      await this.waMonitor.waInstances
+        .get(instanceName)
+        ?.client?.logout('Log out instance: ' + instanceName);
       return { error: false, message: 'Instance logged out' };
     } catch (error) {
-      throw new InternalServerErrorException(error.toString());
+      throw new InternalServerErrorException(error?.message);
     }
   }
 
-  public async deleteInstance({ instanceName }: InstanceDto) {
+  public async deleteInstance({ instanceName }: InstanceDto, force?: boolean) {
     const stateConn = await this.connectionState({ instanceName });
-    if (stateConn.state === 'open') {
+    if (stateConn?.state === 'open') {
       throw new BadRequestException([
         'Deletion failed',
         'The instance needs to be disconnected',
       ]);
     }
-    try {
-      delete this.waMonitor.waInstances[instanceName];
-      return { error: false, message: 'Instance deleted' };
-    } catch (error) {
-      throw new BadRequestException(error.toString());
-    }
+    const del = await this.instanceService.deleteInstance({ instanceName }, force);
+    del['deletedAt'] = new Date();
+    return del;
   }
 
   public async refreshToken(instance: InstanceDto, oldToken: OldToken, req: Request) {
-    const token = await this.authService.refreshToken(oldToken);
+    const token = await this.instanceService.refreshToken(oldToken);
 
     req.session[instance.instanceName] = Buffer.from(JSON.stringify(token)).toString(
       'base64',

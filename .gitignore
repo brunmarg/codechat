@@ -22,14 +22,11 @@ lerna-debug.log*
 !.vscode/launch.json
 !.vscode/extensions.json
 
-# Prisma
-/prisma/migrations
-
 # Project related
 /instances/*
 !/instances/.gitkeep
 /test/
+.env
 /src/env.yml
 /store
 /public2
-/.env

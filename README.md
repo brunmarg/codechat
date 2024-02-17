@@ -13,74 +13,61 @@
   
 <div align="center"><img src="./public/images/cover.png"></div>
 
+## Project Structure
+
+* [Look here](./PROJECT_STRUCTURE.md)
+
 ## WhatsApp-Api-NodeJs
 
-This code is an implementation of [Baileys](https://github.com/WhiskeySockets/Baileys), as a RestFull Api service, which controls whatsapp functions.</br>
+This code is an implementation of [WhiskeySockets](https://github.com/WhiskeySockets/Baileys), as a RestFull Api service, which controls whatsapp functions.</br>
 With this one you can create multiservice chats, service bots or any other system that uses whatsapp. With this code you don't need to know javascript for nodejs , just start the server and make the language requests that you feel most comfortable with.
-
-## [Node n8n](https://github.com/jrCleber/n8n-codechat-wapi)
-
-<div align="center">
-  <a href="https://github.com/jrCleber/n8n-codechat-wapi" target="_blank" rel="noopener noreferrer">
-    <img src="./public/images/n8n-codechat-wapi.png" style="width: 50% !important;">
-  </a>
-</div>
 
 ## Infrastructure
 
-### Nvm installation
+### 1. Docker installation
+
+* First, let's install Docker. Docker is a platform that allows us to quickly create, test and deploy applications in isolated environments called containers.
 
 ```sh
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.3/install.sh | bash
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+sudo usermod -aG docker ${USER}
+```
+
+### 2. Installing the database
+
+> PostgreSql [required]
+
+* Now, we have configured our PostgreSQL database using Docker Compose.
+* Access your postgre manager and create a database.
+
+[compose from postgres](./postgres/docker-compose.yaml)
+
+### 3. Nvm installation
+
+```sh
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
 # or
-wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.3/install.sh | bash
+wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
 ```
 >
 > After finishing, restart the terminal to load the new information.
 >
 
-### Docker installation \[optional\]
+#### 3.1 Nodejs installation
+
+* Installing Node.js using NVM, a version manager that allows us to switch between different versions of Node.js easily.
 
 ```sh
-curl -fsSL https://get.docker.com -o get-docker.sh
-
-sudo sh get-docker.sh
-
-sudo usermod -aG docker ${USER}
-```
-### Nodejs installation
-
-```sh
-nvm install 18.17.0
+nvm install 20
 ```
 
-### pm2 installation
+### 4. pm2 installation
 ```sh
 npm i -g pm2
 ```
 
-### yarn installation
-```sh
-npm i -g yarn
-```
-
-```sh
-docker --version
-
-node --version
-```
-## MongoDb [optional]
-
-After installing docker and docker-compose, up the container.
-  - [compose from mongodb](./mongodb/docker-compose.yaml)
-
-In the same directory where the file is located, run the following command:
-```sh
-bash docker.sh
-```
-Using the database is optional.
-
-## Application startup
+### 5. Application startup
 
 Cloning the Repository
 ```
@@ -96,25 +83,47 @@ Go to the project directory and install all dependencies.
 ```sh
 cd whatsapp-api-v2
 
-yarn install
-# OR
 npm install
+# or
+npm install --force
+```
+
+### 6. Environment variables
+See additional settings that can be applied through the **env** file by clicking **[here](./.env.dev)**.
+
+> **⚠️Attention⚠️:** copy the **.env.dev** file to **.env**.
+```sh
+cp .env.dev .env
+```
+
+### 7. Prism ORM
+
+* We're going to use Prisma ORM to manage our database. Prisma simplifies database access and ensures operations are secure and easy to maintain.
+* **Commands and Explanations:**
+  * **In development environment: npx prisma migrate dev**
+    * We use `migrate dev` in development to automatically create and apply migrations, making working with the database easier.
+  * **In production environment: npx prisma migrate deploy**
+    * In production, we use `migrate deploy` to apply migrations in a controlled and secure way.
+  * **Data visualization:** `npx prisma studio`
+    * Prisma Studio is a visual tool that helps us manage and visualize bank data in an intuitive way.
+
+Define the [DATABASE_URL](https://github.com/code-chat-br/whatsapp-api/blob/6d0ab3e27932c5d1a6d8275dc3c6cb5097ff099e/.env.dev#L48) environment variable for the database deployment.
+
+* Performing the database [deployment](https://www.prisma.io/docs/orm/reference/prisma-cli-reference#migrate-deploy).
+```sh
+bash deploy_db.sh
 ```
 
 Finally, run the command below to start the application:
 ```sh
-# Under development
-yarn start
-npm start
+npm run start:dev
 
-# In production
-yarn start:prod
 npm run start:prod
 
 # pm2
-pm2 start 'yarn start:prod' --name ApiCodechat
-pm2 start 'npm run start:prod' --name ApiCodechat
+pm2 start 'npm run start:prod' --name CodeChat_API_v1.3.0
 ```
+---
 
 ## Swagger - OpenAPI 3.0.0
 
@@ -123,99 +132,17 @@ pm2 start 'npm run start:prod' --name ApiCodechat
 
 ## Authentication
 
-You can define two authentication **types** for the routes in the **[env file](./dev-env.yml)**.
+You can define two authentication **types** for the routes in the **[env file](./env.dev)**.
 Authentications must be inserted in the request header.
 
-1. **apikey**
-
-2. **jwt:** A JWT is a standard for authentication and information exchange defined with a signature.
+1. **jwt:** A JWT is a standard for authentication and information exchange defined with a signature.
 
 > Authentications are generated at instance creation time.
 
 **Note:** There is also the possibility to define a global api key, which can access and control all instances.
 
-### Connection
-
-#### Create an instance
-
-##### HTTP
-
-> *NOTE:* This key must be inserted in the request header to create an instance.
-
-```http
-POST /instance/create HTTP/1.1
-Host: localhost:8080
-Content-Type: application/json
-apikey: t8OOEeISKzpmc3jjcMqBWYSaJH2PIxns
-
-{
-  "instanceName": "codechat"
-}
-```
-##### cURL
-
-```bash
-curl --location --request POST 'http://localhost:8080/instance/create' \
---header 'Content-Type: application/json' \
---header 'apikey: t8OOEeISKzpmc3jjcMqBWYSaJH2PIxns' \
---data-raw '{
-  "instanceName": "codechat"
-}'
-```
-### Response
-
-```ts
-{
-  "instance": {
-    "instanceName": "codechat",
-    "status": "created"
-  },
-  "hash": {
-    "jwt": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9. [...]"
-
-    // or
-    // "apikey": "88513847-1B0E-4188-8D76-4A2750C9B6C3"
-  }
-}
-```
-#### Connection with qrcode
-
-##### HTTP
-
-```http
-GET /instance/connect/codechat HTTP/1.1
-Host: localhost:8080
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9. [...]
-```
-```http
-GET /instance/connect/codechat HTTP/1.1
-Host: localhost:8080
-apikey: 88513847-1B0E-4188-8D76-4A2750C9B6C3
-```
-##### cURL
-
-```bash
-curl --location --request GET 'http://localhost:8080/instance/connect/codechat' \
---header 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9. [...]'
-```
-```bash
-curl --location --request GET 'http://localhost:8080/instance/connect/codechat' \
---header 'apikey: 88513847-1B0E-4188-8D76-4A2750C9B6C3'
-```
-
-### Response
-
-```ts
-{
-  "code": "2@nXSUgRJSBY6T0XJmiFKZ0 [...] ,XsgJhJHYa+0MPpXANdPHHt6Ke/I7O2QyXT/Lsge0uSg=",
-  "base64": "data:image/png;base64,iVBORw0KGgoAAAANSUhE [...] LkMtqAAAAABJRU5ErkJggg=="
-}
-```
-
 ### App in Docker
-  - [docker run](./docker.sh)
   - [docker-compose](./docker-compose.yml)
-  - [env for docker](./Docker/.env)
   - [DockerHub-codechat/api](https://hub.docker.com/r/codechat/api)
 
 After building the application, in the same directory as the files above, run the following command:
@@ -233,14 +160,13 @@ docker-compose up
 | Send Audio type WhatsApp | ✔ |
 | Send Audio type WhatsApp - File | ✔ |
 | Send Location | ✔ |
-| Send List | ✔ |
+| Send List | ❌ |
 | Send Link Preview | ❌ |
 | Send Contact | ✔ |
 | Send Reaction - emoji | ✔ |
 
 ## Postman collections
-  - [Postman Json](./postman.json)
-  - [![Run in Postman](https://run.pstmn.io/button.svg)](https://www.postman.com/codechat/workspace/codechat-whatsapp-api/api/fbe06c7b-7647-4c71-81ee-841f5b2e90d8?action=share&creator=14064846)
+  - [![Run in Postman](https://run.pstmn.io/button.svg)](https://elements.getpostman.com/redirect?entityId=14064846-194eec6c-c3d6-48d1-9660-93d8085fd83a&entityType=collection)
 
 ## Webhook Events
 
@@ -264,11 +190,6 @@ docker-compose up
 | GROUP_PARTICIPANTS_UPDATE | group-participants.update | JSON | Notifies when an action occurs involving a participant</br>'add' | 'remove' | 'promote' | 'demote' |
 | NEW_TOKEN | new.jwt | JSON | Notifies when the token (jwt) is updated
 
-## Env File
-
-See additional settings that can be applied through the **env** file by clicking **[here](./src/dev-env.yml)**.
-
-> **⚠️Attention⚠️:** copy the **dev-env.yml** file to **env.yml**.
 
 ## SSL
 

@@ -37,6 +37,8 @@
  * └──────────────────────────────────────────────────────────────────────────────┘
  */
 
+import { WAPresence } from '@whiskeysockets/baileys';
+
 export class OnWhatsAppDto {
   constructor(
     public readonly jid: string,
@@ -53,6 +55,10 @@ export class NumberDto {
   number: string;
 }
 
+export class UpdatePresenceDto extends NumberDto {
+  presence: WAPresence;
+}
+
 class Key {
   id: string;
   fromMe: boolean;
@@ -60,6 +66,10 @@ class Key {
 }
 export class ReadMessageDto {
   readMessages: Key[];
+}
+
+export class ReadMessageIdDto {
+  messageId: number[];
 }
 
 class LastMessage {
@@ -74,7 +84,4 @@ export class ArchiveChatDto {
 
 export class DeleteMessage {
   id: string;
-  fromMe: boolean;
-  remoteJid: string;
-  participant?: string;
 }
